@@ -8688,7 +8688,7 @@ function isLikelyLoggedInChatgptHomeUrl(rawUrl) {
   if (!isSignupEntryHost(String(parsed.hostname || '').toLowerCase())) {
     return false;
   }
-  return !/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(parsed.pathname || '');
+  return !/^\/(?:auth|create-account|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(parsed.pathname || '');
 }
 
 function isStep5CompletionChatgptUrl(rawUrl) {
@@ -8699,7 +8699,7 @@ function isStep5CompletionChatgptUrl(rawUrl) {
   if (protocol !== 'https:' || !['chatgpt.com', 'www.chatgpt.com'].includes(hostname)) {
     return false;
   }
-  return !/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(parsed.pathname || '');
+  return !/^\/(?:auth|create-account|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(parsed.pathname || '');
 }
 
 function isSignupPasswordPageUrl(rawUrl) {

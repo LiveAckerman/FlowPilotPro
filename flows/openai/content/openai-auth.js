@@ -1,6 +1,23 @@
 // flows/openai/content/openai-auth.js — Content script for ChatGPT signup entry + OpenAI auth pages
 // Injected on: auth0.openai.com, auth.openai.com, accounts.openai.com
 // Dynamically injected on: chatgpt.com
+//
+// Hot-reload safety: the whole file is wrapped in an IIFE + idempotent guard
+// so that re-injecting it into the same isolated world (e.g. after the user
+// reloads the extension without closing existing tabs) becomes a no-op
+// instead of throwing `Identifier already declared` SyntaxError on every
+// top-level `const`. Without this guard, the new code would fail to install
+// and the old (cached) function definitions would silently keep running.
+// On true first load the guard sets a sentinel and the entire body executes
+// as before; on subsequent loads it just returns early.
+(function bootMultiPageOpenAIAuth() {
+  if (typeof self !== 'undefined' && self.__MULTIPAGE_OPENAI_AUTH_BOOTED) {
+    console.log('[MultiPage:openai-auth] Skip re-injection — already loaded in this isolated world. Close and reopen the tab to pick up new code.');
+    return;
+  }
+  if (typeof self !== 'undefined') {
+    self.__MULTIPAGE_OPENAI_AUTH_BOOTED = true;
+  }
 
 console.log('[MultiPage:openai-auth] Content script loaded on', location.href);
 
@@ -3169,7 +3186,7 @@ function isLikelyLoggedInChatgptHomeUrl(rawUrl = location.href) {
     }
 
     const path = String(parsed.pathname || '');
-    if (/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(path)) {
+    if (/^\/(?:auth|create-account|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(path)) {
       return false;
     }
 
@@ -3240,7 +3257,7 @@ function isStep5CompletionChatgptUrl(rawUrl = location.href) {
     }
 
     const path = String(parsed.pathname || '');
-    return !/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(path);
+    return !/^\/(?:auth|create-account|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(path);
   } catch {
     return false;
   }
@@ -7577,3 +7594,5 @@ async function step5_fillNameBirthday(payload) {
     throw error;
   }
 }
+
+})(); // end bootMultiPageOpenAIAuth IIFE — hot-reload guard, see top of file

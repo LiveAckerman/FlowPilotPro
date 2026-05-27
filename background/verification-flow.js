@@ -152,7 +152,7 @@
           return false;
         }
         const path = String(parsed.pathname || '');
-        if (/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(path)) {
+        if (/^\/(?:auth|create-account|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(path)) {
           return false;
         }
         return true;
