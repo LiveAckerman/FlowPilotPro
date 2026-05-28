@@ -13637,6 +13637,7 @@ const phoneVerificationHelpers = self.MultiPageBackgroundPhoneVerification?.crea
   DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS,
   DEFAULT_PHONE_CODE_POLL_ROUNDS,
   readAuthTabSnapshot,
+  reloadAuthTabAndWait,
   ensureStep8SignupPageReady,
   navigateAuthTabToAddPhone: async (tabId, options = {}) => {
     const visibleStep = Math.floor(Number(options.visibleStep || options.step) || 0) || 9;
@@ -15585,6 +15586,44 @@ async function readAuthTabSnapshot(tabId) {
   }
 
   return snapshot || tabSnapshot;
+}
+
+// Reload an auth tab and wait for it to finish loading. Used to attempt
+// recovery from transient HTTP 5xx pages (e.g. /contact-verification 500)
+// without losing an already-purchased SMS code. Returns true if the reload
+// completed within `timeoutMs`, false on error/timeout.
+async function reloadAuthTabAndWait(tabId, timeoutMs = 12000) {
+  if (!Number.isInteger(tabId)) return false;
+  try {
+    await chrome.tabs.reload(tabId);
+  } catch {
+    return false;
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      try { chrome.tabs.onUpdated.removeListener(listener); } catch (_) { /* ignore */ }
+      clearTimeout(timer);
+    };
+    const listener = (updatedTabId, info) => {
+      if (updatedTabId === tabId && info && info.status === 'complete') {
+        cleanup();
+        resolve(true);
+      }
+    };
+    try {
+      chrome.tabs.onUpdated.addListener(listener);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, Math.max(1000, Number(timeoutMs) || 12000));
+  });
 }
 
 async function getStep8PageState(tabId, responseTimeoutMs = 1500, visibleStep = 9) {

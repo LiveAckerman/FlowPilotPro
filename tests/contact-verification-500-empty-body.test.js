@@ -39,6 +39,54 @@ test('isPhoneResendServerError does NOT match healthy verification page text', (
   assert.equal(PHONE_RESEND_SERVER_ERROR_PATTERN.test('We sent a code to +1 555 1234'), false);
 });
 
+test('throwPhoneResendServerErrorIfAuthTabShowsIt reloads the tab once and retries before giving up', () => {
+  // Reload-recovery 策略：reload tab 一次，如果页面恢复就不浪费已收到的 SMS；
+  // 没恢复才走原来的"丢弃接码号 + 换号"链路。
+  const src = fs.readFileSync('background/phone-verification-flow.js', 'utf8');
+  assert.ok(
+    src.includes('reloadAuthTabAndWait'),
+    'should call reloadAuthTabAndWait helper to attempt recovery'
+  );
+  assert.ok(
+    /reloadAuthTabAndWait\(tabId, 12000\)/.test(src) || /reloadAuthTabAndWait\(tabId,\s*12000\)/.test(src),
+    'should reload with a reasonable timeout (12s)'
+  );
+  assert.ok(
+    src.includes('stillError = await readPhoneResendServerErrorFromAuthTab(tabId)'),
+    'after reload should re-check the page state to decide if recovery succeeded'
+  );
+  assert.ok(
+    src.includes('将继续用当前接码号完成验证'),
+    'should log a recovery-succeeded message when reload fixes the page'
+  );
+  assert.ok(
+    src.includes('换号重跑当前轮'),
+    'should log a give-up message when reload does not fix the page'
+  );
+});
+
+test('background.js exposes reloadAuthTabAndWait helper and injects it into phone-verification-flow deps', () => {
+  const bg = fs.readFileSync('background.js', 'utf8');
+  assert.ok(
+    /async function reloadAuthTabAndWait\(tabId/.test(bg),
+    'background.js should define reloadAuthTabAndWait'
+  );
+  assert.ok(
+    /chrome\.tabs\.reload\(tabId\)/.test(bg),
+    'reloadAuthTabAndWait should actually call chrome.tabs.reload'
+  );
+  assert.ok(
+    /chrome\.tabs\.onUpdated\.addListener\(listener\)/.test(bg),
+    'reloadAuthTabAndWait should wait for tab status complete via onUpdated'
+  );
+  // Deps injection: helper must be passed to phone-verification-flow
+  assert.ok(
+    /reloadAuthTabAndWait,\s*\n\s*ensureStep8SignupPageReady/.test(bg)
+      || /createPhoneVerificationHelpers\([\s\S]{0,2000}reloadAuthTabAndWait/.test(bg),
+    'reloadAuthTabAndWait should be passed as a dep to createPhoneVerificationHelpers'
+  );
+});
+
 test('background.js readAuthTabSnapshot has the MAIN-world fallback and synthetic 500 path', () => {
   const src = fs.readFileSync('background.js', 'utf8');
   // Look for the structural changes we made

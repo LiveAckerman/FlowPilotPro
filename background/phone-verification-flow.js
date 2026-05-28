@@ -12,6 +12,7 @@
       getState,
       requestStop = null,
       readAuthTabSnapshot = null,
+      reloadAuthTabAndWait = null,
       sendToContentScript,
       sendToContentScriptResilient,
       navigateAuthTabToAddPhone = null,
@@ -1788,9 +1789,53 @@
 
     async function throwPhoneResendServerErrorIfAuthTabShowsIt(tabId) {
       const serverErrorText = await readPhoneResendServerErrorFromAuthTab(tabId);
-      if (serverErrorText) {
-        throw buildPhoneResendServerError(serverErrorText);
+      if (!serverErrorText) {
+        return;
       }
+
+      // 检测到 contact-verification 500。**先 reload 一次试着恢复**：
+      // - 如果 OpenAI 后端只是抖一下，reload 后页面会回到验证码输入表单 → 不抛错，
+      //   上层就能用「已经收到的 SMS 验证码」直接提交，避免浪费已付费的接码号。
+      // - 如果 reload 后还是 500，再走原来的 cancelActivation + 换号链路。
+      if (typeof reloadAuthTabAndWait === 'function' && Number.isInteger(tabId)) {
+        await addLog(
+          '检测到 contact-verification 页面返回 HTTP 500，正在尝试 reload 一次恢复（这样可以复用已经收到的验证码、不浪费接码号）...',
+          'warn',
+          { stepKey: 'fetch-signup-code' }
+        );
+        let reloaded = false;
+        try {
+          reloaded = await reloadAuthTabAndWait(tabId, 12000);
+        } catch (_) {
+          reloaded = false;
+        }
+        if (reloaded) {
+          // 给页面一点点时间让重定向/重渲染落定，再重新读快照。
+          try { await new Promise((r) => setTimeout(r, 600)); } catch (_) { /* ignore */ }
+          const stillError = await readPhoneResendServerErrorFromAuthTab(tabId);
+          if (!stillError) {
+            await addLog(
+              'reload 后 contact-verification 500 页面已恢复，将继续用当前接码号完成验证。',
+              'ok',
+              { stepKey: 'fetch-signup-code' }
+            );
+            return;
+          }
+          await addLog(
+            'reload 后 contact-verification 仍是 HTTP 500，将丢弃当前接码号并换号重跑当前轮。',
+            'warn',
+            { stepKey: 'fetch-signup-code' }
+          );
+        } else {
+          await addLog(
+            'reload 等待加载完成超时，将丢弃当前接码号并换号重跑当前轮。',
+            'warn',
+            { stepKey: 'fetch-signup-code' }
+          );
+        }
+      }
+
+      throw buildPhoneResendServerError(serverErrorText);
     }
 
     function shouldTreatResendThrottledAsBanned(state = {}) {
