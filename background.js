@@ -15539,20 +15539,52 @@ async function readAuthTabSnapshot(tabId) {
   } catch {
     tabSnapshot = null;
   }
-  try {
-    const executionResults = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'ISOLATED',
-      func: () => ({
-        url: String(location.href || ''),
-        title: String(document.title || ''),
-        text: String(document.body?.innerText || document.documentElement?.innerText || '').trim(),
-      }),
-    });
-    return executionResults?.[0]?.result || tabSnapshot;
-  } catch {
-    return tabSnapshot;
+
+  // 优先在 ISOLATED 世界里读 —— 正常 OpenAI 页面这就够了。
+  const readInWorld = async (world) => {
+    try {
+      const executionResults = await chrome.scripting.executeScript({
+        target: { tabId },
+        world,
+        func: () => ({
+          url: String(location.href || ''),
+          title: String(document.title || ''),
+          text: String(document.body?.innerText || document.documentElement?.innerText || '').trim(),
+        }),
+      });
+      return executionResults?.[0]?.result || null;
+    } catch {
+      return null;
+    }
+  };
+
+  let snapshot = await readInWorld('ISOLATED');
+
+  // Chrome 在 HTTP 5xx 等错误时会把 tab 渲染成原生错误页（chrome-error://chromewebdata 之类），
+  // ISOLATED 世界的内容脚本被屏蔽 → 上面那次 executeScript 要么抛错要么 text 为空。
+  // 这种情况下再试一次 MAIN 世界（部分错误页面允许 MAIN 注入读取 body 文字，比如"HTTP ERROR 500"）。
+  // 若仍读不到，且 URL 是 /contact-verification 这种已知会触发 5xx 的端点，
+  // 返回合成快照让上层 isPhoneResendServerError 正则能命中，避免流程被无内容页卡死。
+  if (!snapshot || !snapshot.text) {
+    const mainSnapshot = await readInWorld('MAIN');
+    if (mainSnapshot?.text) {
+      snapshot = mainSnapshot;
+    } else {
+      const url = String(snapshot?.url || mainSnapshot?.url || tabSnapshot?.url || '');
+      if (/\/contact-verification(?:[/?#]|$)/i.test(url)) {
+        // 浏览器加载这个端点失败 / 渲染了原生错误页 → 强制声明 HTTP 5xx，让上游走 500 恢复链路。
+        return {
+          url,
+          title: String(snapshot?.title || mainSnapshot?.title || tabSnapshot?.title || ''),
+          text: 'HTTP ERROR 500 contact-verification 页面无内容（浏览器未能加载页面正文，疑似 OpenAI 后端 5xx）',
+        };
+      }
+      // 不是已知错误端点，照旧返回 tab fallback
+      snapshot = snapshot || mainSnapshot || tabSnapshot;
+    }
   }
+
+  return snapshot || tabSnapshot;
 }
 
 async function getStep8PageState(tabId, responseTimeoutMs = 1500, visibleStep = 9) {
