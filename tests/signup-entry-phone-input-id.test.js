@@ -185,6 +185,100 @@ test('inspectSignupEntryState detects phone_entry via input[autocomplete="tel"] 
   assert.equal(snapshot.detectedBy, 'autocomplete-tel');
 });
 
+test('getActiveSignupDialog prefers the signup-form dialog when a marketing promo dialog also visible', () => {
+  // 回归：chatgpt.com 主页营销弹窗（"Images 2.0 重磅登场 / 登录或注册即可创作"）和真正的
+  // 注册 modal 同时可见时，必须挑后者；否则后续所有 input/button 检测全失败、流程死循环点 免费注册。
+  const promoDialog = {
+    tagName: 'DIV',
+    getAttribute: () => null,
+    inert: false,
+    getBoundingClientRect: () => ({ width: 448, height: 100 }),
+    querySelector: (selector) => {
+      // 营销弹窗里没有任何 email/phone/Google/Apple 按钮 —— 只有"登录或注册即可创作"和"暂不"
+      void selector;
+      return null;
+    },
+    querySelectorAll: () => [
+      { textContent: '登录或注册即可创作' },
+      { textContent: '暂不' },
+    ],
+  };
+  const signupDialog = {
+    tagName: 'DIV',
+    getAttribute: () => null,
+    inert: false,
+    getBoundingClientRect: () => ({ width: 388, height: 608 }),
+    querySelector: (selector) => {
+      if (/#phoneNumberInput/.test(selector)) return null; // currently in email mode
+      if (/type="email"|id="email"|name="email"|autocomplete="email"/.test(selector)) {
+        return { id: 'email', type: 'email' };
+      }
+      return null;
+    },
+    querySelectorAll: () => [
+      { textContent: '使用 Google 账户继续' },
+      { textContent: '使用 Apple 账户继续' },
+      { textContent: '使用电话号码继续' },
+      { textContent: '继续' },
+    ],
+  };
+
+  const api = new Function(`
+const promoDialog = arguments[0];
+const signupDialog = arguments[1];
+const document = {
+  querySelectorAll(selector) {
+    if (/\\[role="dialog"\\]/.test(selector)) return [promoDialog, signupDialog];
+    return [];
+  },
+};
+const window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) };
+${require('node:fs').readFileSync('flows/openai/content/openai-auth.js', 'utf8').match(/function getActiveSignupDialog\([\s\S]*?\n\}/)[0]}
+return { getActiveSignupDialog };
+`)(promoDialog, signupDialog);
+
+  const chosen = api.getActiveSignupDialog();
+  assert.strictEqual(chosen, signupDialog, 'should pick the dialog containing email/phone/Google/Apple buttons over the promo dialog');
+});
+
+test('getActiveSignupDialog falls back to the first visible dialog when none has signup signals', () => {
+  // 守卫：如果所有 visible dialog 都不含注册表单标记（比如全是营销/通用提示框），
+  // 仍然返回第一个，保持旧行为不破坏其他场景。
+  const dialogA = {
+    tagName: 'DIV',
+    getAttribute: () => null,
+    inert: false,
+    getBoundingClientRect: () => ({ width: 300, height: 200 }),
+    querySelector: () => null,
+    querySelectorAll: () => [{ textContent: '其它操作' }],
+  };
+  const dialogB = {
+    tagName: 'DIV',
+    getAttribute: () => null,
+    inert: false,
+    getBoundingClientRect: () => ({ width: 200, height: 100 }),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+
+  const api = new Function(`
+const dialogA = arguments[0];
+const dialogB = arguments[1];
+const document = {
+  querySelectorAll(selector) {
+    if (/\\[role="dialog"\\]/.test(selector)) return [dialogA, dialogB];
+    return [];
+  },
+};
+const window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) };
+${require('node:fs').readFileSync('flows/openai/content/openai-auth.js', 'utf8').match(/function getActiveSignupDialog\([\s\S]*?\n\}/)[0]}
+return { getActiveSignupDialog };
+`)(dialogA, dialogB);
+
+  const chosen = api.getActiveSignupDialog();
+  assert.strictEqual(chosen, dialogA, 'should fall back to the first visible dialog when no signup signals found');
+});
+
 test('inspectSignupEntryState returns phone_entry_pending when switch-to-email button is in dialog but phone input not yet rendered', () => {
   // Critical chatgpt.com bug: after clicking "use phone number to continue",
   // the dialog switch button text changes to "switch to email" immediately

@@ -683,7 +683,9 @@ function getActiveSignupDialog() {
     return null;
   }
   const dialogs = Array.from(document.querySelectorAll('[role="dialog"], dialog, [aria-modal="true"]'));
-  return dialogs.find((d) => {
+
+  // 先收集所有真正"可见"的 dialog（过滤掉 aria-hidden/inert/display:none/0-size 等）。
+  const visibleDialogs = dialogs.filter((d) => {
     if (!d) return false;
     if (d.getAttribute?.('aria-hidden') === 'true') return false;
     if (d.inert === true) return false;
@@ -693,14 +695,44 @@ function getActiveSignupDialog() {
         return false;
       }
     } catch {
-      // window.getComputedStyle 可能在测试 mock 下不存在，忽略
+      // window.getComputedStyle 在测试 mock 下可能不存在，忽略
     }
     if (typeof d.getBoundingClientRect === 'function') {
       const rect = d.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return false;
     }
     return true;
-  }) || null;
+  });
+
+  if (!visibleDialogs.length) return null;
+
+  // chatgpt.com 主页经常**同时**显示多个 dialog：
+  //   - 底层：营销弹窗（"Images 2.0 重磅登场 / 登录或注册即可创作 / 暂不"）
+  //   - 顶层：真正的注册 modal（Google/Apple/电话号码 + email input）
+  // 如果只用 Array.find() 取第一个，会命中营销弹窗，导致后续所有 input/button 检测全失败、
+  // 流程死循环点击"免费注册"。这里**显式优先选包含注册表单标记的那个 dialog**。
+  const hasSignupFormSignal = (d) => {
+    if (!d || typeof d.querySelector !== 'function') return false;
+    // 注册表单一定有这几个之一：phoneNumberInput / type=email input / Google/Apple 大按钮
+    if (d.querySelector('#phoneNumberInput')) return true;
+    if (d.querySelector('input[type="email"], input[id="email"], input[name="email"], input[autocomplete="email"]')) return true;
+    if (d.querySelector('input[type="tel"], input[autocomplete="tel"]')) return true;
+    if (typeof d.querySelectorAll === 'function') {
+      const buttonTexts = Array.from(d.querySelectorAll('button, [role="button"]'))
+        .map((el) => String(el.textContent || '').trim());
+      if (buttonTexts.some((t) => /Google|Apple|使用电话号码|使用电子邮箱|继续使用.*手机|继续使用.*邮箱/.test(t))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const signupDialog = visibleDialogs.find(hasSignupFormSignal);
+  if (signupDialog) return signupDialog;
+
+  // 没有任何 dialog 含注册表单标记 → 返回第一个可见 dialog 兜底（保持旧行为，
+  // 避免破坏其他场景，比如 /auth/login 整页里只有一个 dialog 的情况）。
+  return visibleDialogs[0];
 }
 
 function findSignupUsePhoneTrigger(scope) {
