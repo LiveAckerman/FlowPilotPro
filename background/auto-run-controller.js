@@ -6,6 +6,15 @@
   // 是否开启，都按这个上限本轮自动重试；超过上限再让本轮失败、进下一轮。
   const PHONE_NO_SUPPLY_PER_ROUND_RETRY_CAP = 10;
 
+  // 「页面/会话临时问题」型失败：停留在已登录 ChatGPT 首页（step 2 守卫）、或内容脚本因页面
+  // 跳转/刷新断连未恢复。这类失败跟账号无关，下一轮 step 1 会清 cookie + 全新打开页面，
+  // 恢复概率很高。因此即使没开自动重试，也只跳过当前轮、继续下一轮，而不是终止整段自动运行。
+  function isRoundSkippableEntryFailure(message) {
+    const text = String(message || '').trim();
+    if (!text) return false;
+    return /检测到当前停留在已登录\s*ChatGPT\s*首页|已阻止自动跳过步骤\s*3\/4\/5|页面刚完成跳转或刷新，内容脚本还没有重新接回/i.test(text);
+  }
+
   function createAutoRunController(deps = {}) {
     const {
       addLog,
@@ -1169,7 +1178,10 @@
               autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
             });
             await appendRoundRecordIfNeeded('failed', reason, err);
-            if (!autoRunSkipFailures) {
+            // 例外：页面/会话临时问题（停留在已登录首页 / 内容脚本断连）即使没开自动重试，
+            // 也只跳过当前轮、继续下一轮，不终止整段。
+            const skippableEntryFailure = isRoundSkippableEntryFailure(reason);
+            if (!autoRunSkipFailures && !skippableEntryFailure) {
               cancelPendingCommands('当前轮执行失败。');
               await broadcastStopToContentScripts();
               await addLog('自动重试未开启，自动运行将在当前失败后停止。', 'warn');
@@ -1182,14 +1194,23 @@
               });
               break;
             }
-            await addLog(`第 ${targetRun}/${totalRuns} 轮最终失败：${reason}`, 'error');
-            await addLog(
-              targetRun < totalRuns
-                ? `第 ${targetRun}/${totalRuns} 轮已达到 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试上限，继续下一轮。`
-                : `第 ${targetRun}/${totalRuns} 轮已达到 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试上限，本次自动运行结束。`,
-              'warn'
-            );
-            cancelPendingCommands('当前轮已达到重试上限。');
+            if (skippableEntryFailure && !autoRunSkipFailures) {
+              await addLog(
+                targetRun < totalRuns
+                  ? `第 ${targetRun}/${totalRuns} 轮遇到页面/会话临时问题，自动跳过当前轮继续下一轮（下一轮会清理会话重开）：${reason}`
+                  : `第 ${targetRun}/${totalRuns} 轮遇到页面/会话临时问题，已无后续轮次，本次自动运行结束：${reason}`,
+                'warn'
+              );
+            } else {
+              await addLog(`第 ${targetRun}/${totalRuns} 轮最终失败：${reason}`, 'error');
+              await addLog(
+                targetRun < totalRuns
+                  ? `第 ${targetRun}/${totalRuns} 轮已达到 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试上限，继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮已达到 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试上限，本次自动运行结束。`,
+                'warn'
+              );
+            }
+            cancelPendingCommands('当前轮结束，准备下一轮。');
             await broadcastStopToContentScripts();
             forceFreshTabsNextRun = true;
             break;
@@ -1294,5 +1315,6 @@
 
   return {
     createAutoRunController,
+    isRoundSkippableEntryFailure,
   };
 });
