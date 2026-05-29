@@ -2679,9 +2679,23 @@ async function waitForSignupPhoneEntryState(options = {}) {
   let lastSwitchToPhoneAt = 0;
   let lastMoreOptionsClickAt = 0;
   let slowSnapshotLogged = false;
+  // 一旦确认 modal 已经切到手机号模式（phone_entry_pending），phoneNumberInput 就一定会渲染，
+  // 只是 OpenAI 要先做 IP 国家定位 —— 在慢代理/VPN 下这一步可能远超基础 timeout（20~25s）。
+  // 所以进入 pending 后改用一个更长的独立窗口（默认 90s），避免还差几秒就被基础 timeout 杀掉。
+  const PHONE_ENTRY_PENDING_EXTRA_MS = 90000;
+  let phoneEntryPendingSince = 0;
+  let pendingProgressLoggedAt = 0;
 
-  while (Date.now() - start < timeout) {
+  while (true) {
     throwIfStopped();
+    const now = Date.now();
+    // 计算是否超时：还没进 pending 用基础 timeout；进了 pending 用 pending 的长窗口。
+    const expired = phoneEntryPendingSince > 0
+      ? (now - phoneEntryPendingSince >= PHONE_ENTRY_PENDING_EXTRA_MS)
+      : (now - start >= timeout);
+    if (expired) {
+      break;
+    }
     const snapshot = inspectSignupEntryState();
 
     if (snapshot.state === 'password_page') {
@@ -2694,11 +2708,18 @@ async function waitForSignupPhoneEntryState(options = {}) {
 
     // phone_entry_pending：modal 已经在 phone 模式，但 phoneNumberInput 还在
     // 渲染（OpenAI 要做国家定位）。**绝对不能 click switch trigger**，否则会把
-    // modal 切回 email。每 1.5s 打一条日志告诉用户在等。
+    // modal 切回 email。进入此状态后启用更长的等待窗口，并每 ~8s 提示一次进度。
     if (snapshot.state === 'phone_entry_pending') {
-      if (!slowSnapshotLogged && Date.now() - start >= 3000) {
+      if (!phoneEntryPendingSince) {
+        phoneEntryPendingSince = Date.now();
+      }
+      if (!slowSnapshotLogged) {
         slowSnapshotLogged = true;
-        log(`步骤 ${step}：modal 已切到手机号模式但 phone input 还在渲染中（OpenAI 正在做国家定位），等待 input 出现...`, 'info');
+        log(`步骤 ${step}：modal 已切到手机号模式但 phone input 还在渲染中（OpenAI 正在做国家定位），最长再等 ${Math.round(PHONE_ENTRY_PENDING_EXTRA_MS / 1000)} 秒等待 input 出现...`, 'info');
+      } else if (Date.now() - pendingProgressLoggedAt >= 8000) {
+        pendingProgressLoggedAt = Date.now();
+        const waitedSec = Math.round((Date.now() - phoneEntryPendingSince) / 1000);
+        log(`步骤 ${step}：仍在等待手机号输入框渲染（已等待 ${waitedSec} 秒，慢代理下 IP 国家定位较慢属正常）...`, 'info');
       }
       await sleep(500);
       continue;

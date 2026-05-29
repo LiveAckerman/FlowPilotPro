@@ -185,6 +185,25 @@ test('inspectSignupEntryState detects phone_entry via input[autocomplete="tel"] 
   assert.equal(snapshot.detectedBy, 'autocomplete-tel');
 });
 
+test('waitForSignupPhoneEntryState extends the wait window once phone_entry_pending is detected (slow IP geolocation)', () => {
+  // 回归：慢代理/VPN 下 OpenAI 切到手机号模式后，phone input 要等 IP 国家定位才渲染，
+  // 可能超过基础 timeout（20~25s）。一旦进入 phone_entry_pending，必须切换到一个更长的
+  // 独立窗口（默认 90s），否则差几秒就被基础 timeout 杀掉 → 误报"没有手机号入口"。
+  const src = require('node:fs').readFileSync('flows/openai/content/openai-auth.js', 'utf8');
+  assert.ok(
+    /PHONE_ENTRY_PENDING_EXTRA_MS\s*=\s*90000/.test(src),
+    'should define a 90s extended window for the phone_entry_pending state'
+  );
+  assert.ok(
+    /phoneEntryPendingSince\s*>\s*0\s*\?\s*\(now - phoneEntryPendingSince >= PHONE_ENTRY_PENDING_EXTRA_MS\)/.test(src),
+    'once pending starts, the expiry check should use the pending window instead of the base timeout'
+  );
+  assert.ok(
+    src.includes('if (!phoneEntryPendingSince) {'),
+    'should record the moment phone_entry_pending first appears'
+  );
+});
+
 test('getActiveSignupDialog prefers the signup-form dialog when a marketing promo dialog also visible', () => {
   // 回归：chatgpt.com 主页营销弹窗（"Images 2.0 重磅登场 / 登录或注册即可创作"）和真正的
   // 注册 modal 同时可见时，必须挑后者；否则后续所有 input/button 检测全失败、流程死循环点 免费注册。
