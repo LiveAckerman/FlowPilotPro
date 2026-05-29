@@ -185,30 +185,33 @@ test('inspectSignupEntryState detects phone_entry via input[autocomplete="tel"] 
   assert.equal(snapshot.detectedBy, 'autocomplete-tel');
 });
 
-test('waitForSignupPhoneEntryState retries the phone-mode toggle up to 3 times when phone input never renders', () => {
-  // 回归：慢代理/VPN 下 OpenAI 切到手机号模式后 phone input 可能迟迟不渲染。
-  // 策略升级为：每个等待窗口（12s）耗尽后主动 toggle 切换（切回邮箱再切回手机号，
-  // 强制 React 重新挂载手机号输入组件），最多重试 3 次，比单纯死等更能绕开卡渲染。
-  const src = require('node:fs').readFileSync('flows/openai/content/openai-auth.js', 'utf8');
+test('waitForSignupPhoneEntryState only waits (no in-page toggle) on phone_entry_pending; reload-retry lives in background', () => {
+  // 实测结论：OpenAI 某些会话/IP 下点了切换后手机号输入框压根不渲染，且在页面里点
+  // "使用电子邮箱继续"反向 toggle 会触发跳转、把内容脚本搞断连。所以 content script
+  // 在 phone_entry_pending 只做有限等待，绝不 toggle；重载重试交给 background 层。
+  const contentSrc = require('node:fs').readFileSync('flows/openai/content/openai-auth.js', 'utf8');
   assert.ok(
-    /MAX_PHONE_PENDING_RETRIES\s*=\s*3/.test(src),
-    'should retry the phone toggle up to 3 times'
+    /PHONE_ENTRY_PENDING_WAIT_MS\s*=\s*18000/.test(contentSrc),
+    'content script should wait up to 18s for phone input in phone_entry_pending'
   );
   assert.ok(
-    /PENDING_WINDOW_MS\s*=\s*12000/.test(src),
-    'should give each retry window 12 seconds'
+    !contentSrc.includes('toggle-back-to-email') && !contentSrc.includes('toggle-back-to-phone'),
+    'content script must NOT toggle in phone_entry_pending (caused content-script disconnect)'
+  );
+
+  // background submit-signup-email.js 负责重载重试
+  const bgSrc = require('node:fs').readFileSync('flows/openai/background/steps/submit-signup-email.js', 'utf8');
+  assert.ok(
+    /MAX_PHONE_ENTRY_RELOAD_RETRIES\s*=\s*3/.test(bgSrc),
+    'background should reload-retry up to 3 times'
   );
   assert.ok(
-    src.includes('toggle-back-to-email') && src.includes('toggle-back-to-phone'),
-    'retry should toggle back to email then back to phone to force a re-render'
+    bgSrc.includes('reloadSignupTabForPhoneEntryRetry'),
+    'background should have a reload-then-retry helper'
   );
   assert.ok(
-    /phonePendingRetryCount\s*\+=\s*1/.test(src),
-    'should increment the retry counter on each toggle'
-  );
-  assert.ok(
-    /phonePendingRetryCount >= MAX_PHONE_PENDING_RETRIES/.test(src),
-    'should stop retrying after the cap and let the loop time out'
+    /chrome\.tabs\.reload\(tabId\)/.test(bgSrc),
+    'reload helper should actually reload the tab'
   );
 });
 

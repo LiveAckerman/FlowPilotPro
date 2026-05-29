@@ -313,6 +313,35 @@
       };
     }
 
+    // 重载注册页 tab 后重新确保内容脚本就绪。手机号输入框不渲染往往是 OpenAI modal 在当前
+    // 会话里卡死/拉取可用登录方式失败，一次干净的页面重载会重新拉取，比在页面里反复 toggle 可靠。
+    async function reloadSignupTabForPhoneEntryRetry(tabId) {
+      if (chrome?.tabs?.reload && Number.isInteger(tabId)) {
+        try {
+          await chrome.tabs.reload(tabId);
+          await waitForStep2SignupTabToSettle(
+            tabId,
+            '步骤 2：已重载注册页，正在等待页面加载完成并额外稳定 3 秒...'
+          );
+          await ensureContentScriptReadyOnTab('openai-auth', tabId, {
+            inject: OPENAI_AUTH_INJECT_FILES,
+            injectSource: 'openai-auth',
+            timeoutMs: 45000,
+            retryDelayMs: 900,
+            logMessage: '步骤 2：重载后注册页内容脚本未就绪，正在等待页面恢复...',
+          });
+        } catch (_) {
+          // 重载/等待失败不致命，下面会用 ensureSignupEntryPageReady 兜底重开入口。
+        }
+      }
+      // 重载后页面回到 chatgpt.com 主页（无 modal），重新打开注册入口让后续切换有起点。
+      try {
+        return (await ensureSignupEntryPageReady(2)).tabId;
+      } catch (_) {
+        return tabId;
+      }
+    }
+
     async function executeSignupPhoneEntry(state) {
       let signupTabId = await ensureSignupTabForStep2();
       if (await shouldForceAuthEntryRetry(signupTabId)) {
@@ -329,24 +358,35 @@
         }
       }
 
-      try {
-        await ensureSignupPhoneEntryReady(signupTabId);
-      } catch (entryError) {
-        const entryErrorMessage = getErrorMessage(entryError);
-        if (await failStep2OnLoggedInSession(signupTabId, entryErrorMessage)) {
-          return;
-        }
-        if (
-          isSignupPhoneEntryUnavailableErrorMessage(entryErrorMessage)
-          || isSignupEntryUnavailableErrorMessage(entryErrorMessage)
-          || isRetryableStep2TransportErrorMessage(entryErrorMessage)
-        ) {
-          await addLog('步骤 2：手机号注册入口尚未就绪，正在重新打开官网入口后重试一次...', 'warn');
-          signupTabId = (await ensureSignupEntryPageReady(2)).tabId;
+      // 手机号输入框不渲染时，重载页面重试（每次重载会重新拉取 OpenAI 可用登录方式），最多 3 次；
+      // 都不行就抛错，让 auto-run 进下一轮（下一轮 step 1 会清 cookie + 全新打开，恢复概率最高）。
+      const MAX_PHONE_ENTRY_RELOAD_RETRIES = 3;
+      let entryReady = false;
+      for (let attempt = 0; attempt <= MAX_PHONE_ENTRY_RELOAD_RETRIES; attempt += 1) {
+        try {
           await ensureSignupPhoneEntryReady(signupTabId);
-        } else {
-          throw entryError;
+          entryReady = true;
+          break;
+        } catch (entryError) {
+          const entryErrorMessage = getErrorMessage(entryError);
+          if (await failStep2OnLoggedInSession(signupTabId, entryErrorMessage)) {
+            return;
+          }
+          const recoverable = isSignupPhoneEntryUnavailableErrorMessage(entryErrorMessage)
+            || isSignupEntryUnavailableErrorMessage(entryErrorMessage)
+            || isRetryableStep2TransportErrorMessage(entryErrorMessage);
+          if (!recoverable || attempt >= MAX_PHONE_ENTRY_RELOAD_RETRIES) {
+            throw entryError;
+          }
+          await addLog(
+            `步骤 2：手机号输入框未就绪，重载注册页后重试（第 ${attempt + 1}/${MAX_PHONE_ENTRY_RELOAD_RETRIES} 次）...`,
+            'warn'
+          );
+          signupTabId = await reloadSignupTabForPhoneEntryRetry(signupTabId);
         }
+      }
+      if (!entryReady) {
+        throw new Error('步骤 2：手机号注册入口多次重载后仍未就绪，请重试当前轮。URL: 未知');
       }
 
       const signupPhone = await resolveSignupPhoneForStep2(state);

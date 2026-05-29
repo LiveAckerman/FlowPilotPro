@@ -2679,24 +2679,23 @@ async function waitForSignupPhoneEntryState(options = {}) {
   let lastSwitchToPhoneAt = 0;
   let lastMoreOptionsClickAt = 0;
   let slowSnapshotLogged = false;
-  // phone_entry_pending：modal 已切到手机号模式，但 phoneNumberInput 还没渲染出来
-  // （OpenAI 要先做 IP 国家定位，慢代理下尤其慢）。
-  // 策略：每次给一个等待窗口（PENDING_WINDOW_MS）等 input 出现；窗口内没出现就
-  // **主动重试一次切换动作**（toggle：切回邮箱再切回手机号，强制 React 重新挂载手机号
-  // 输入组件），最多重试 MAX_PHONE_PENDING_RETRIES 次。比单纯死等更能绕开"卡在渲染中"。
-  const PENDING_WINDOW_MS = 12000;
-  const MAX_PHONE_PENDING_RETRIES = 3;
-  let phoneEntryPendingWindowStart = 0;
-  let phonePendingRetryCount = 0;
+  // phone_entry_pending：modal 已切到手机号模式（switch 按钮变成"使用电子邮箱继续"），
+  // 但 phoneNumberInput 还没渲染。**绝对不在这里 toggle 切换**——实测证明：
+  //   1. OpenAI 在某些会话/IP 下点了切换后手机号输入框压根不渲染（toggle 标签变了但表单卡在 email）；
+  //   2. 在页面里点"使用电子邮箱继续"反向切换会触发跳转，把内容脚本搞断连。
+  // 这里只**有限等待** PHONE_ENTRY_PENDING_WAIT_MS；等不到就返回 pending 快照，
+  // 让 ensureSignupPhoneEntryReady 抛"无手机号入口"错误，由 background 层用「重载页面重试 +
+  // 实在不行换下一轮」的策略来恢复（重载比原地 toggle 干净得多）。
+  const PHONE_ENTRY_PENDING_WAIT_MS = 18000;
+  let phoneEntryPendingSince = 0;
   let pendingProgressLoggedAt = 0;
 
   while (true) {
     throwIfStopped();
     const now = Date.now();
-    // 超时判定：还没进 pending 用基础 timeout；进了 pending 用「窗口 × (重试次数+1)」的总预算。
-    const expired = phoneEntryPendingWindowStart > 0
-      ? (phonePendingRetryCount >= MAX_PHONE_PENDING_RETRIES
-        && now - phoneEntryPendingWindowStart >= PENDING_WINDOW_MS)
+    // 超时判定：还没进 pending 用基础 timeout；进了 pending 用独立的等待窗口。
+    const expired = phoneEntryPendingSince > 0
+      ? (now - phoneEntryPendingSince >= PHONE_ENTRY_PENDING_WAIT_MS)
       : (now - start >= timeout);
     if (expired) {
       break;
@@ -2711,42 +2710,15 @@ async function waitForSignupPhoneEntryState(options = {}) {
       return snapshot;
     }
 
-    // phone_entry_pending：等当前窗口；窗口耗尽就主动 toggle 重试，最多 3 次。
+    // phone_entry_pending：只等不点。等到 PHONE_ENTRY_PENDING_WAIT_MS 还没出现 input 就放行超时。
     if (snapshot.state === 'phone_entry_pending') {
-      if (!phoneEntryPendingWindowStart) {
-        phoneEntryPendingWindowStart = Date.now();
-        log(`步骤 ${step}：modal 已切到手机号模式但 phone input 还在渲染中（OpenAI 正在做国家定位），等待 input 出现...`, 'info');
-      }
-      const waitedInWindow = Date.now() - phoneEntryPendingWindowStart;
-      if (waitedInWindow >= PENDING_WINDOW_MS && phonePendingRetryCount < MAX_PHONE_PENDING_RETRIES) {
-        // 当前窗口等够了还没出现 → 主动重试：toggle 切回邮箱再切回手机号，强制重渲染。
-        phonePendingRetryCount += 1;
-        log(`步骤 ${step}：手机号输入框 ${Math.round(PENDING_WINDOW_MS / 1000)} 秒内未渲染，第 ${phonePendingRetryCount}/${MAX_PHONE_PENDING_RETRIES} 次重新触发手机号切换以强制刷新...`, 'warn');
-        const dialog = typeof getActiveSignupDialog === 'function' ? getActiveSignupDialog() : null;
-        const switchToEmail = snapshot.switchToEmailTrigger || findSignupUseEmailTrigger(dialog);
-        if (switchToEmail) {
-          await humanPause(300, 700);
-          await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'toggle-back-to-email' }, async () => {
-            simulateClick(switchToEmail);
-          });
-          await sleep(1200);
-        }
-        const dialogAfter = typeof getActiveSignupDialog === 'function' ? getActiveSignupDialog() : dialog;
-        const switchToPhone = findSignupUsePhoneTrigger(dialogAfter);
-        if (switchToPhone) {
-          await humanPause(300, 700);
-          await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'toggle-back-to-phone' }, async () => {
-            simulateClick(switchToPhone);
-          });
-        }
-        phoneEntryPendingWindowStart = Date.now(); // 重置窗口，重新等
-        await sleep(800);
-        continue;
-      }
-      if (Date.now() - pendingProgressLoggedAt >= 4000) {
+      if (!phoneEntryPendingSince) {
+        phoneEntryPendingSince = Date.now();
+        log(`步骤 ${step}：modal 已切到手机号模式但 phone input 还在渲染中，最长等待 ${Math.round(PHONE_ENTRY_PENDING_WAIT_MS / 1000)} 秒...`, 'info');
+      } else if (Date.now() - pendingProgressLoggedAt >= 4000) {
         pendingProgressLoggedAt = Date.now();
-        const totalWaitedSec = Math.round((Date.now() - phoneEntryPendingWindowStart) / 1000);
-        log(`步骤 ${step}：仍在等待手机号输入框渲染（本轮已等待 ${totalWaitedSec} 秒，重试 ${phonePendingRetryCount}/${MAX_PHONE_PENDING_RETRIES}）...`, 'info');
+        const waitedSec = Math.round((Date.now() - phoneEntryPendingSince) / 1000);
+        log(`步骤 ${step}：仍在等待手机号输入框渲染（已等待 ${waitedSec} 秒）...`, 'info');
       }
       await sleep(500);
       continue;
