@@ -185,22 +185,30 @@ test('inspectSignupEntryState detects phone_entry via input[autocomplete="tel"] 
   assert.equal(snapshot.detectedBy, 'autocomplete-tel');
 });
 
-test('waitForSignupPhoneEntryState extends the wait window once phone_entry_pending is detected (slow IP geolocation)', () => {
-  // 回归：慢代理/VPN 下 OpenAI 切到手机号模式后，phone input 要等 IP 国家定位才渲染，
-  // 可能超过基础 timeout（20~25s）。一旦进入 phone_entry_pending，必须切换到一个更长的
-  // 独立窗口（默认 90s），否则差几秒就被基础 timeout 杀掉 → 误报"没有手机号入口"。
+test('waitForSignupPhoneEntryState retries the phone-mode toggle up to 3 times when phone input never renders', () => {
+  // 回归：慢代理/VPN 下 OpenAI 切到手机号模式后 phone input 可能迟迟不渲染。
+  // 策略升级为：每个等待窗口（12s）耗尽后主动 toggle 切换（切回邮箱再切回手机号，
+  // 强制 React 重新挂载手机号输入组件），最多重试 3 次，比单纯死等更能绕开卡渲染。
   const src = require('node:fs').readFileSync('flows/openai/content/openai-auth.js', 'utf8');
   assert.ok(
-    /PHONE_ENTRY_PENDING_EXTRA_MS\s*=\s*90000/.test(src),
-    'should define a 90s extended window for the phone_entry_pending state'
+    /MAX_PHONE_PENDING_RETRIES\s*=\s*3/.test(src),
+    'should retry the phone toggle up to 3 times'
   );
   assert.ok(
-    /phoneEntryPendingSince\s*>\s*0\s*\?\s*\(now - phoneEntryPendingSince >= PHONE_ENTRY_PENDING_EXTRA_MS\)/.test(src),
-    'once pending starts, the expiry check should use the pending window instead of the base timeout'
+    /PENDING_WINDOW_MS\s*=\s*12000/.test(src),
+    'should give each retry window 12 seconds'
   );
   assert.ok(
-    src.includes('if (!phoneEntryPendingSince) {'),
-    'should record the moment phone_entry_pending first appears'
+    src.includes('toggle-back-to-email') && src.includes('toggle-back-to-phone'),
+    'retry should toggle back to email then back to phone to force a re-render'
+  );
+  assert.ok(
+    /phonePendingRetryCount\s*\+=\s*1/.test(src),
+    'should increment the retry counter on each toggle'
+  );
+  assert.ok(
+    /phonePendingRetryCount >= MAX_PHONE_PENDING_RETRIES/.test(src),
+    'should stop retrying after the cap and let the loop time out'
   );
 });
 
