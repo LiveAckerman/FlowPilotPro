@@ -3186,6 +3186,57 @@ header {
   gap: 10px;
 }
 
+.account-records-filterbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.account-records-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.account-records-filter-label {
+  font-size: 11px;
+  color: #888;
+}
+
+.account-records-time-input {
+  font-size: 11px;
+  padding: 2px 4px;
+  max-width: 170px;
+}
+
+.account-record-item-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.account-record-extra-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+  white-space: nowrap;
+}
+
+.account-record-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.account-record-copy-btn {
+  font-size: 11px;
+}
+
 .account-record-item-email-row {
   min-width: 0;
   display: flex;

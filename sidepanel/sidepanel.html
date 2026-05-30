@@ -1830,8 +1830,21 @@
           <button id="btn-toggle-account-records-selection" class="btn btn-ghost btn-xs" type="button">多选</button>
           <button id="btn-delete-selected-account-records" class="btn btn-ghost btn-xs" type="button" hidden
             disabled>删除选中</button>
+          <button id="btn-export-account-records" class="btn btn-ghost btn-xs" type="button" title="导出当前筛选结果（JSON）">导出</button>
           <button id="btn-clear-account-records" class="btn btn-ghost btn-xs" type="button">清理记录</button>
         </div>
+      </div>
+      <div class="account-records-filterbar">
+        <label class="account-records-filter-field">
+          <span class="account-records-filter-label">起</span>
+          <input type="datetime-local" id="input-account-records-from" class="data-input mono account-records-time-input" />
+        </label>
+        <label class="account-records-filter-field">
+          <span class="account-records-filter-label">止</span>
+          <input type="datetime-local" id="input-account-records-to" class="data-input mono account-records-time-input" />
+        </label>
+        <button id="btn-account-records-clear-time" class="btn btn-ghost btn-xs" type="button" title="清除时间筛选">清除</button>
+        <button id="btn-account-records-sort" class="btn btn-outline btn-xs" type="button" title="切换时间排序">时间 ↓</button>
       </div>
       <div id="account-records-list" class="account-records-list"></div>
       <div class="account-records-pagination">

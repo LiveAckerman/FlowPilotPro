@@ -54,6 +54,9 @@
     let activeFilter = 'all';
     let selectionMode = false;
     let eventsBound = false;
+    let sortDirection = 'desc'; // 'desc' = 新→旧（默认），'asc' = 旧→新
+    let filterFromTs = 0; // 时间范围下限（ms），0 表示不限
+    let filterToTs = 0;   // 时间范围上限（ms），0 表示不限
     const selectedRecordIds = new Set();
 
     function escapeHtml(value) {
@@ -222,11 +225,25 @@
     }
 
     function getAccountRunRecords(currentState = state.getLatestState()) {
+      const dirFactor = sortDirection === 'asc' ? -1 : 1;
       return (Array.isArray(currentState?.accountRunHistory) ? currentState.accountRunHistory : [])
         .filter((item) => item && typeof item === 'object')
         .slice()
-        .sort((left, right) => normalizeTimestamp(right.finishedAt) - normalizeTimestamp(left.finishedAt))
+        .sort((left, right) => (normalizeTimestamp(right.finishedAt) - normalizeTimestamp(left.finishedAt)) * dirFactor)
         .map((record) => applyRunningDisplayState(record, currentState));
+    }
+
+    function matchesTimeRange(record) {
+      if (!filterFromTs && !filterToTs) {
+        return true;
+      }
+      const ts = normalizeTimestamp(record?.finishedAt);
+      if (!ts) {
+        return false; // 没有时间戳的记录在时间筛选下不显示
+      }
+      if (filterFromTs && ts < filterFromTs) return false;
+      if (filterToTs && ts > filterToTs) return false;
+      return true;
     }
 
     function summarizeAccountRunHistory(records = []) {
@@ -336,7 +353,7 @@
 
     function getFilteredRecords(records = []) {
       const filterConfig = getFilterConfig(activeFilter);
-      return records.filter((record) => filterConfig.matches(record));
+      return records.filter((record) => filterConfig.matches(record) && matchesTimeRange(record));
     }
 
     function pruneSelectedRecordIds(records = []) {
@@ -582,6 +599,16 @@
               <div class="account-record-item-summary">${escapeHtml(summaryText)}</div>
               <span class="account-record-item-retry mono">重试 ${escapeHtml(String(retryCount))}</span>
             </div>
+            ${(record.verificationCode || record.smsActivationId || record.countryLabel) ? `
+            <div class="account-record-item-extra mono">
+              ${record.verificationCode ? `<span class="account-record-extra-chip" title="接码验证码">验证码 ${escapeHtml(String(record.verificationCode))}</span>` : ''}
+              ${record.smsProvider ? `<span class="account-record-extra-chip" title="接码平台">${escapeHtml(String(record.smsProvider))}</span>` : ''}
+              ${record.countryLabel ? `<span class="account-record-extra-chip" title="号码国家">${escapeHtml(String(record.countryLabel))}</span>` : ''}
+              ${record.smsActivationId ? `<span class="account-record-extra-chip" title="接码订单号">#${escapeHtml(String(record.smsActivationId))}</span>` : ''}
+            </div>` : ''}
+            <div class="account-record-item-actions">
+              <button type="button" class="btn btn-ghost btn-xs account-record-copy-btn" data-account-record-copy="${escapeHtml(recordId)}" title="复制手机号/邮箱/密码/验证码">复制</button>
+            </div>
           </div>
         `;
       }).join('');
@@ -739,6 +766,15 @@
     }
 
     function handleRecordListClick(event) {
+      // 复制按钮在任何模式下都可点（含非多选模式）。
+      const copyNode = findClosest(event?.target, '[data-account-record-copy]');
+      if (copyNode) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        copyRecordToClipboard(getDatasetValue(copyNode, 'data-account-record-copy'));
+        return;
+      }
+
       if (!selectionMode) {
         return;
       }
@@ -759,6 +795,105 @@
 
       toggleRecordSelection(getDatasetValue(recordNode, 'data-account-record-id'));
       render();
+    }
+
+    // 组装单条记录的可复制文本（手动续注册用）。
+    function buildRecordCopyText(record = {}) {
+      const lines = [];
+      const phone = getRecordPhoneNumber(record);
+      const email = getRecordEmail(record);
+      if (phone) lines.push(`手机号: ${phone}`);
+      if (email) lines.push(`邮箱: ${email}`);
+      if (record.password) lines.push(`密码: ${record.password}`);
+      if (record.verificationCode) lines.push(`验证码: ${record.verificationCode}`);
+      if (record.smsActivationId) lines.push(`接码订单号: ${record.smsActivationId}`);
+      if (record.smsProvider) lines.push(`接码平台: ${record.smsProvider}`);
+      if (record.countryLabel) lines.push(`国家: ${record.countryLabel}`);
+      const statusMeta = getStatusMeta(record);
+      lines.push(`状态: ${statusMeta.label}`);
+      const summary = getRecordSummaryText(record);
+      if (summary) lines.push(`说明: ${summary}`);
+      const timeText = formatAccountRecordTime(record.finishedAt);
+      if (timeText) lines.push(`时间: ${timeText}`);
+      return lines.join('\n');
+    }
+
+    async function copyRecordToClipboard(recordId) {
+      const records = getAccountRunRecords();
+      const target = records.find((item) => buildRecordId(item) === String(recordId || '').trim().toLowerCase());
+      if (!target) {
+        helpers.showToast?.('未找到该记录。', 'warn', 1600);
+        return;
+      }
+      const text = buildRecordCopyText(target);
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // 兜底：用一个临时 textarea + execCommand
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        helpers.showToast?.('已复制该记录到剪贴板。', 'success', 1600);
+      } catch (error) {
+        helpers.showToast?.(`复制失败：${error?.message || error}`, 'error', 2200);
+      }
+    }
+
+    function exportFilteredRecords() {
+      const allRecords = getAccountRunRecords();
+      const filtered = getFilteredRecords(allRecords);
+      if (!filtered.length) {
+        helpers.showToast?.('当前筛选下没有可导出的记录。', 'warn', 1800);
+        return;
+      }
+      // 导出经过当前「状态筛选 + 时间范围 + 排序」后的结果，所见即所得。
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        filter: {
+          status: activeFilter,
+          fromTs: filterFromTs || null,
+          toTs: filterToTs || null,
+          sort: sortDirection,
+        },
+        count: filtered.length,
+        records: filtered,
+      };
+      try {
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `account-records-${stamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        helpers.showToast?.(`已导出 ${filtered.length} 条账号记录。`, 'success', 2000);
+      } catch (error) {
+        helpers.showToast?.(`导出失败：${error?.message || error}`, 'error', 2400);
+      }
+    }
+
+    function parseDatetimeLocal(value) {
+      const text = String(value || '').trim();
+      if (!text) return 0;
+      const ms = Date.parse(text);
+      return Number.isFinite(ms) ? ms : 0;
+    }
+
+    function updateSortButtonLabel() {
+      if (dom.btnAccountRecordsSort) {
+        dom.btnAccountRecordsSort.textContent = sortDirection === 'desc' ? '时间 ↓' : '时间 ↑';
+        dom.btnAccountRecordsSort.title = sortDirection === 'desc' ? '当前：新→旧，点击切换为旧→新' : '当前：旧→新，点击切换为新→旧';
+      }
     }
 
     function bindEvents() {
@@ -812,6 +947,34 @@
           helpers.showToast?.(`清理账号记录失败：${error.message}`, 'error');
         }
       });
+      dom.btnExportAccountRecords?.addEventListener('click', () => {
+        exportFilteredRecords();
+      });
+      dom.btnAccountRecordsSort?.addEventListener('click', () => {
+        sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+        currentPage = 1;
+        updateSortButtonLabel();
+        render();
+      });
+      dom.inputAccountRecordsFrom?.addEventListener('change', () => {
+        filterFromTs = parseDatetimeLocal(dom.inputAccountRecordsFrom.value);
+        currentPage = 1;
+        render();
+      });
+      dom.inputAccountRecordsTo?.addEventListener('change', () => {
+        filterToTs = parseDatetimeLocal(dom.inputAccountRecordsTo.value);
+        currentPage = 1;
+        render();
+      });
+      dom.btnAccountRecordsClearTime?.addEventListener('click', () => {
+        filterFromTs = 0;
+        filterToTs = 0;
+        if (dom.inputAccountRecordsFrom) dom.inputAccountRecordsFrom.value = '';
+        if (dom.inputAccountRecordsTo) dom.inputAccountRecordsTo.value = '';
+        currentPage = 1;
+        render();
+      });
+      updateSortButtonLabel();
     }
 
     function reset() {

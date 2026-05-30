@@ -58,6 +58,12 @@ test('legacy account records importer normalizes old history records into canoni
     autoRunContext: null,
     plusModeEnabled: true,
     accountContributionEnabled: false,
+    verificationCode: '',
+    smsActivationId: '',
+    smsProvider: '',
+    countryLabel: '',
+    signupMethod: '',
+    mailProvider: '',
   });
   assert.equal(records[1].recordId, 'phone:+6612345');
   assert.equal(records[1].flowId, 'kiro');

@@ -280,6 +280,48 @@
       ).trim();
     }
 
+    function pickActivation(state = {}) {
+      // 优先取已完成的接码 activation，其次进行中的，最后通用的当前 activation。
+      return state?.signupPhoneCompletedActivation
+        || state?.signupPhoneActivation
+        || state?.currentPhoneActivation
+        || null;
+    }
+
+    function sanitizeShortText(value, maxLen = 64) {
+      const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+      return text.length > maxLen ? text.slice(0, maxLen) : text;
+    }
+
+    // 从「运行态 state」提取额外可记录数据（构建新记录时用）。
+    function extractExtraFieldsFromState(state = {}) {
+      const activation = pickActivation(state);
+      const signupMethod = String(
+        state?.resolvedSignupMethod || state?.signupMethod || ''
+      ).trim().toLowerCase();
+      return {
+        verificationCode: sanitizeShortText(state?.currentPhoneVerificationCode, 16),
+        smsActivationId: sanitizeShortText(activation?.activationId ?? activation?.id ?? activation?.activation, 48),
+        smsProvider: sanitizeShortText(activation?.provider, 24),
+        countryLabel: sanitizeShortText(activation?.countryLabel, 48),
+        signupMethod: signupMethod === 'phone' ? 'phone' : (signupMethod === 'email' ? 'email' : ''),
+        mailProvider: sanitizeShortText(state?.mailProvider, 24),
+      };
+    }
+
+    // 从「已存记录 record」提取/清洗额外字段（读取归一化时用，避免被 normalize 丢掉）。
+    function extractExtraFieldsFromRecord(record = {}) {
+      const signupMethod = String(record?.signupMethod || '').trim().toLowerCase();
+      return {
+        verificationCode: sanitizeShortText(record?.verificationCode, 16),
+        smsActivationId: sanitizeShortText(record?.smsActivationId, 48),
+        smsProvider: sanitizeShortText(record?.smsProvider, 24),
+        countryLabel: sanitizeShortText(record?.countryLabel, 48),
+        signupMethod: signupMethod === 'phone' ? 'phone' : (signupMethod === 'email' ? 'email' : ''),
+        mailProvider: sanitizeShortText(record?.mailProvider, 24),
+      };
+    }
+
     function normalizePhoneRecordKey(value = '') {
       const rawValue = String(value || '').trim();
       const digits = rawValue.replace(/\D+/g, '');
@@ -432,6 +474,7 @@
         autoRunContext: source === 'auto' ? autoRunContext : null,
         plusModeEnabled: Boolean(record.plusModeEnabled),
         accountContributionEnabled: Boolean(record.accountContributionEnabled),
+        ...extractExtraFieldsFromRecord(record),
       };
     }
 
@@ -527,6 +570,7 @@
         autoRunContext,
         plusModeEnabled: Boolean(state.plusModeEnabled),
         accountContributionEnabled: Boolean(state.accountContributionEnabled),
+        ...extractExtraFieldsFromState(state),
       };
     }
 
@@ -543,6 +587,10 @@
         record.accountIdentifier || record.email || record.phoneNumber,
         record.accountIdentifierType || (phoneKey && !emailKey ? 'phone' : 'email')
       );
+      // 找出被替换掉的旧记录，用于继承「新记录里丢失的」关键数据（验证码/接码订单号等）。
+      // 场景：running 记录里已记下验证码，progress 到 failed 时 state 已清空验证码 →
+      // 不继承的话会丢码。这里对几个易丢字段做"新空则沿用旧值"的合并。
+      const replacedRecords = [];
       const nextHistory = normalizedHistory.filter((item) => {
         const itemRecordId = String(item.recordId || '').trim();
         const itemEmailKey = String(item.email || '').trim().toLowerCase();
@@ -551,13 +599,27 @@
           item.accountIdentifier || item.email || item.phoneNumber,
           item.accountIdentifierType || (itemPhoneKey && !itemEmailKey ? 'phone' : 'email')
         );
-        return itemRecordId !== recordId
+        const keep = itemRecordId !== recordId
           && itemIdentifierKey !== identifierKey
           && (!emailKey || itemEmailKey !== emailKey)
           && (!phoneKey || itemPhoneKey !== phoneKey);
+        if (!keep) {
+          replacedRecords.push(item);
+        }
+        return keep;
       });
 
-      nextHistory.unshift(record);
+      const mergedRecord = { ...record };
+      const inheritKeys = ['verificationCode', 'smsActivationId', 'smsProvider', 'countryLabel', 'signupMethod', 'mailProvider', 'password'];
+      for (const prev of replacedRecords) {
+        for (const key of inheritKeys) {
+          if (!String(mergedRecord[key] || '').trim() && String(prev?.[key] || '').trim()) {
+            mergedRecord[key] = prev[key];
+          }
+        }
+      }
+
+      nextHistory.unshift(mergedRecord);
       return normalizeAccountRunHistory(nextHistory);
     }
 
@@ -764,6 +826,7 @@
       normalizeAccountRunHistoryRecord,
       normalizeFinalStatus,
       setPersistedAccountRunHistory,
+      upsertAccountRunHistoryRecord,
       shouldAppendAccountRunTextFile,
       shouldSyncAccountRunHistorySnapshot,
       summarizeAccountRunHistory,

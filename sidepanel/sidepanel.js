@@ -14277,6 +14277,11 @@ const accountRecordsManager = window.SidepanelAccountRecordsManager?.createAccou
     btnCloseAccountRecords,
     btnOpenAccountRecords,
     btnToggleAccountRecordsSelection,
+    btnExportAccountRecords: document.getElementById('btn-export-account-records'),
+    inputAccountRecordsFrom: document.getElementById('input-account-records-from'),
+    inputAccountRecordsTo: document.getElementById('input-account-records-to'),
+    btnAccountRecordsClearTime: document.getElementById('btn-account-records-clear-time'),
+    btnAccountRecordsSort: document.getElementById('btn-account-records-sort'),
   },
   helpers: {
     escapeHtml,

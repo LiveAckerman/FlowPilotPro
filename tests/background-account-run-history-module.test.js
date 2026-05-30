@@ -103,6 +103,12 @@ test('account run history helper upgrades old records, keeps stopped items and s
     },
     plusModeEnabled: false,
     accountContributionEnabled: false,
+    verificationCode: '',
+    smsActivationId: '',
+    smsProvider: '',
+    countryLabel: '',
+    signupMethod: '',
+    mailProvider: '',
   });
 
   const appended = await helpers.appendAccountRunRecord('node:fetch-login-code:failed', null, '步骤 8：认证页进入了手机号页面，当前不是 OAuth 同意页，无法继续自动授权。');
@@ -214,6 +220,12 @@ test('account run history helper accepts phone-only records without forcing emai
     autoRunContext: null,
     plusModeEnabled: false,
     accountContributionEnabled: false,
+    verificationCode: '',
+    smsActivationId: '',
+    smsProvider: '',
+    countryLabel: '',
+    signupMethod: '',
+    mailProvider: '',
   });
 
   const normalized = helpers.normalizeAccountRunHistoryRecord({
