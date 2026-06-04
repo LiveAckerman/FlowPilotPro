@@ -8262,7 +8262,7 @@ async function fetchIcloudHideMyEmail(options = {}) {
           : {}),
         hme: generatedAlias,
         label: getIcloudAliasLabel(),
-        note: 'Generated through FlowPilot',
+        note: 'Generated through AutoPilot',
       };
 
       let alias = '';

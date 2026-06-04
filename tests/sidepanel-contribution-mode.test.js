@@ -107,7 +107,8 @@ test('sidepanel html contains contribution mode runtime UI and loads the module 
   const moduleIndex = html.indexOf('<script src="contribution-mode.js"></script>');
   const sidepanelIndex = html.indexOf('<script src="sidepanel.js"></script>');
 
-  assert.match(html, /id="btn-contribution-mode"/);
+  // 头部「贡献/使用教程」入口按钮在 AutoPilot 重命名时已移除；贡献模式面板本体仍保留。
+  assert.doesNotMatch(html, /id="btn-contribution-mode"/);
   assert.match(html, /id="contribution-mode-panel"/);
   assert.match(html, /id="contribution-oauth-status"/);
   assert.match(html, /id="contribution-callback-status"/);

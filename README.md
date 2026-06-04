@@ -1,85 +1,48 @@
-# FlowPilot
+# AutoPilot
 
-`FlowPilot` 是一个 Chrome 侧边栏扩展，用来批量处理 ChatGPT / OpenAI 账号注册、授权、Plus 支付和平台接入流程。
+`AutoPilot` 是一个 Chrome 侧边栏扩展，用来批量处理 ChatGPT / OpenAI 账号注册、授权、Plus 支付和平台接入流程。
 
-它的定位不是“单个按钮脚本”，而是把注册、验证码、OAuth、Plus 支付、账号导入、自动重试和记录管理放进同一套可持续使用的工具里。
-
-## 插件效果
-
-一百五十个号，一个 401：
-
-<div align="center">
-
-# 交流群请进官网查看
-
-### <a href="https://flowpilot.qlhazycoder.top/" target="_blank" rel="noreferrer">点击进入官网查看最新地址与交流群入口</a>
-
-**最新地址、交流群入口、最新通知，统一以官网为准。**
-
-</div>
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=QLHazyCoder%2FFlowPilot&type=timeline&logscale&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=QLHazyCoder/FlowPilot&type=timeline&logscale&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=QLHazyCoder/FlowPilot&type=timeline&logscale&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=QLHazyCoder/FlowPilot&type=timeline&logscale&legend=top-left" />
-  </picture>
-</a>
+- 当前版本：`1.0.0`
+- 仓库地址：<https://github.com/LiveAckerman/FlowPilotPro>
 
 ## 主要功能
 
 - 支持普通注册授权链路，既可以单步执行，也可以整套 `Auto` 执行。
+- 支持邮箱注册与手机号注册两种方式，自动识别 chatgpt.com 登录/注册弹窗与 `auth.openai.com` 整页表单。
 - 支持 Plus 模式，覆盖 `PayPal`、`GoPay`、`GPC` 三种支付链路。
 - 支持 `账号接入策略`，可以在 Plus 模式下按来源选择继续走 `OAuth`，或直接导入当前 ChatGPT 已登录会话。
 - 支持 `CPA`、`SUB2API`、`Codex2API` 三种 OpenAI 来源，以及独立的 `Kiro` flow。
-- 支持邮箱注册、验证码收取、登录验证码处理、OAuth 同意页确认和平台侧账号创建。
+- 支持邮箱注册、验证码收取、登录验证码处理、绑定邮箱、OAuth 同意页确认和平台侧账号创建。
 - 支持 `Hotmail`、`2925`、`QQ Mail`、`163 Mail`、`163 VIP Mail`、`126 Mail`、`Inbucket`、`Cloud Mail`、`YYDS Mail`、`iCloud` 等收码方式。
 - 支持 `DuckDuckGo`、`Cloudflare`、`自定义邮箱池`、`自定义邮箱服务号池`、`Gmail / 2925 别名邮箱` 等注册邮箱生成方式。
-- 支持接码平台、手机号验证、自动重试、执行范围限制、IP 代理、贡献模式和账号记录面板。
+- 支持 `HeroSMS`、`5sim`、`NexSMS` 三家接码平台、手机号验证、号码轮换、自动重试、执行范围限制、IP 代理。
+- 支持 `HeroSMS 热门便宜号码` 查询：按近 12 小时解码成功率与实付价排序，叠加实时可买库存与运营商，帮你挑性价比最高的国家。
 - 支持 `Stop`、暂停后继续、失败后重试，以及本地 helper 快照同步。
 
-## 支持的来源
+## 容错与自动恢复
 
-- `CPA`
-  用于普通 OAuth 接入，也支持在 Plus 模式下直接导入当前 ChatGPT 会话到 CPA。
+- 接码无号（`NO_NUMBERS`）：当前轮自动重抓最多 10 次，仍无号则跳过当前轮、继续下一轮。
+- 脏号识别：手机号被 OpenAI 识别为已存在账号（落入登录密码页）、或接码号无法收码时，自动丢弃当前号、换号重跑当前轮。
+- 区域受限：检测到 `unsupported_country` 时停止自动运行，并在日志提示检查 VPN 是否挂载到支持区域。
+- `contact-verification` HTTP 500：先重载页面尝试恢复（复用已收到的验证码、不浪费接码号），恢复不了再换号重跑。
+- 手机号输入框不渲染：在 background 层重载注册页重试最多 3 次，仍不行则换下一轮（下一轮会清理会话重开）。
+- 绑定邮箱被占用（`email_already_in_use`）：丢弃当前邮箱、重新生成后回到绑定邮箱步骤重试。
+- 页面/会话临时问题（停留在已登录首页、内容脚本断连）：只跳过当前轮、继续下一轮，不终止整段自动运行。
 
-- `SUB2API`
-  用于普通 OAuth 接入，也支持在 Plus 模式下直接导入当前 ChatGPT 会话到 SUB2API。
+## 账号记录
 
-- `Codex2API`
-  当前保持 OAuth 接入，不支持 Plus 会话直导。
+侧栏日志区右上角的 `记录` 按钮可打开「账号记录」面板，数据持久化在 `chrome.storage.local`，关闭扩展或刷新浏览器都不会丢失。
 
-- `Kiro`
-  独立的 Builder ID 注册、桌面授权和 `kiro.rs` 上传链路，不复用 OpenAI 的 Plus 和平台接入逻辑。
-
-## Plus 模式
-
-- Plus 模式下，侧边栏会先显示 `账号接入策略`，再显示 `Plus 支付`。
-- `账号接入策略` 只选择接入方式：`OAuth` 或 `使用会话 JSON 导入`；会话导入的目标由上方 `来源` 自动决定，`Codex2API` 当前仅支持 `OAuth`。
-- Plus 模式下的步骤不是固定一套，系统会按支付方式和账号接入策略动态切换尾链。
-- Plus 模式当前只支持邮箱注册，不支持手机号注册。
-
-## 自动化能力
-
-- 支持手动单步执行、自动整套执行、手动跳过、失败重试和中途停止。
-- 支持在同一轮里保留账号身份，自动把邮箱、手机号、注册邮箱状态和平台回调状态串起来。
-- 支持“记录”面板查看成功、失败、停止、重试次数，以及同一轮的邮箱/手机号组合身份。
-- 支持把账号记录同步到本地 helper，方便直接查看 `data/account-run-history.json`。
-
-## 邮箱与验证码能力
-
-- 支持网页邮箱轮询、API 邮箱轮询和本地 helper 读取三类模式。
-- 支持注册验证码、登录验证码、绑定邮箱验证码，以及 Plus / GPC 场景下的 OTP 处理。
-- `2925` 支持多账号池、自动登录、自动切号、24 小时冷却。
-- `Hotmail` 支持远程服务模式和本地 helper 模式。
-- `自定义邮箱池` 和 `自定义邮箱服务号池` 都可以和自动运行轮数联动。
+- 记录字段：邮箱、手机号、密码、成功/失败/运行中/停止状态、失败原因、执行到第几步、时间、自动/手动来源、重试次数。
+- 接码相关：手机短信验证码、接码订单号、接码平台、号码国家、注册方式、邮箱 provider。
+- 复制：每条记录提供 `复制` 按钮，一键复制手机号 / 邮箱 / 密码 / 验证码 / 订单号 / 平台 / 国家等，方便手动续注册「接了码但没成功」的号。
+- 筛选与排序：可按状态筛选、按时间范围（起/止）筛选、按时间升序/降序排序。
+- 导出：可将当前筛选结果导出为 JSON 文件。
 
 ## 快速开始
 
 1. 在 `chrome://extensions/` 打开开发者模式。
-2. 点击“加载已解压的扩展程序”，选择本项目目录。
+2. 点击「加载已解压的扩展程序」，选择本项目目录。
 3. 打开扩展侧边栏，先选择当前要跑的 `flow` 和 `来源`。
 4. 按你的使用方式配置邮箱、验证码来源、Plus 支付或平台参数。
 5. 先手动跑通前几步，再使用 `Auto` 跑完整链路。
@@ -95,7 +58,3 @@
 - [项目文件结构说明.md](./项目文件结构说明.md)
 - [项目完整链路说明.md](./项目完整链路说明.md)
 - [项目开发规范（AI协作）.md](./项目开发规范（AI协作）.md)
-
-如果你只想知道“这个扩展能做什么、该怎么开用”，看本 README 就够了。
-
-如果你要继续开发、补链路、加步骤或排查运行态，请再看上面的两份技术文档。

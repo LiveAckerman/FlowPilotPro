@@ -11543,7 +11543,7 @@ function getRepositoryHomeUrl() {
     return releasesPageUrl.replace(/\/releases\/?$/, '');
   }
 
-  return 'https://github.com/QLHazyCoder/FlowPilot';
+  return 'https://github.com/LiveAckerman/FlowPilotPro';
 }
 
 function getReleaseListUrl() {
@@ -11637,7 +11637,7 @@ function renderUpdateReleaseList(releases = []) {
 
     const version = document.createElement('span');
     version.className = 'update-release-version';
-    version.textContent = release.displayVersion || `FlowPilot${release.version}`;
+    version.textContent = release.displayVersion || `AutoPilot${release.version}`;
     titleRow.appendChild(version);
 
     if (release.title) {
@@ -11739,21 +11739,21 @@ function renderReleaseSnapshot(snapshot) {
     }
 
     case 'ignored': {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'AutoPilot1.0.0';
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
     }
 
     case 'latest': {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'AutoPilot1.0.0';
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
     }
 
     case 'empty': {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'AutoPilot1.0.0';
       extensionUpdateStatus.classList.add('is-version-label');
       resetUpdateCard();
       break;
@@ -11761,7 +11761,7 @@ function renderReleaseSnapshot(snapshot) {
 
     case 'error':
     default: {
-      extensionUpdateStatus.textContent = localVersionText || 'FlowPilot0.0';
+      extensionUpdateStatus.textContent = localVersionText || 'AutoPilot1.0.0';
       extensionUpdateStatus.classList.add('is-version-label', 'is-check-failed');
       extensionVersionMeta.textContent = snapshot?.errorMessage || 'GitHub Releases 检查失败';
       extensionVersionMeta.hidden = false;
@@ -11772,7 +11772,7 @@ function renderReleaseSnapshot(snapshot) {
 }
 
 async function initializeReleaseInfo() {
-  const fallbackReleaseUrl = sidepanelUpdateService?.releasesPageUrl || 'https://github.com/QLHazyCoder/FlowPilot/releases';
+  const fallbackReleaseUrl = sidepanelUpdateService?.releasesPageUrl || 'https://github.com/LiveAckerman/FlowPilotPro/releases';
 
   if (btnReleaseLog) {
     btnReleaseLog.onclick = () => openExternalUrl(currentReleaseSnapshot?.logUrl || fallbackReleaseUrl);
@@ -11784,8 +11784,8 @@ async function initializeReleaseInfo() {
 
   const localVersion = sidepanelUpdateService?.getLocalVersionLabel?.(chrome.runtime.getManifest())
     || chrome.runtime.getManifest()?.version_name
-    || (chrome.runtime.getManifest()?.version ? `FlowPilot${chrome.runtime.getManifest().version}` : '');
-  extensionUpdateStatus.textContent = localVersion || 'FlowPilot0.0';
+    || (chrome.runtime.getManifest()?.version ? `AutoPilot${chrome.runtime.getManifest().version}` : '');
+  extensionUpdateStatus.textContent = localVersion || 'AutoPilot1.0.0';
   extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed');
   extensionUpdateStatus.classList.add('is-version-label');
   extensionVersionMeta.hidden = true;

@@ -1,6 +1,8 @@
 (() => {
-  const GITHUB_OWNER = 'QLHazyCoder';
-  const GITHUB_REPO = 'FlowPilot';
+  const GITHUB_OWNER = 'LiveAckerman';
+  const GITHUB_REPO = 'FlowPilotPro';
+  // 扩展内更新检查已停用：不再向 GitHub Releases 发请求，也不再弹更新提示。
+  const UPDATE_CHECK_DISABLED = true;
   const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
   const RELEASES_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=10`;
   const CACHE_KEY = 'flowpilot-release-snapshot-v1';
@@ -68,7 +70,7 @@
 
   function getVersionFamilyPrefix(family) {
     if (family === VERSION_FAMILY_FLOWPILOT) {
-      return 'FlowPilot';
+      return 'AutoPilot';
     }
     if (family === VERSION_FAMILY_ULTRA) {
       return 'Ultra';
@@ -295,6 +297,11 @@
   }
 
   async function fetchReleases() {
+    if (UPDATE_CHECK_DISABLED) {
+      // 主动短路：永远返回空 Releases 列表，sidepanel 端会按“无新版本”渲染。
+      writeCache([]);
+      return [];
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -403,11 +410,11 @@
     }
 
     const versionCore = extractVersionCore(manifest?.version || '');
-    return versionCore ? formatDisplayVersion(`FlowPilot${versionCore}`, VERSION_FAMILY_FLOWPILOT) : '';
+    return versionCore ? formatDisplayVersion(`AutoPilot${versionCore}`, VERSION_FAMILY_FLOWPILOT) : '';
   }
 
   async function getReleaseSnapshot(options = {}) {
-    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'FlowPilot0.0';
+    const localVersion = getLocalVersionLabel(chrome.runtime.getManifest()) || 'AutoPilot1.0.0';
 
     try {
       const releases = await loadReleases(options);
